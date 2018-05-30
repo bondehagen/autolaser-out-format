@@ -7,7 +7,6 @@ namespace LaserOutReader
         static void Main(string[] args)
         {
             new Reader();
-            Console.WriteLine("end");
             Console.ReadKey();
         }
     }

@@ -41,14 +41,27 @@ namespace LaserOutReader
         public Reader()
         {
             ReadFile();
-            
+
             for (byte b = 0; _offset < _buffer.Length;)
             {
                 b = Next();
                 if (b == 0xE3)
                 {
-                    if (Next() == 03) { }
-                    Next(2);
+                    b = Next();
+                    switch (b)
+                    {
+                        case 0x02:
+                            Console.Write(" <- END ");
+                            Next(2);
+                            break;
+                        case 0x03:
+                            Console.Write(" <- START ");
+                            Next(2);
+                            break;
+                        default:
+                            Console.Write("Unknown category {0:X2}", b);
+                            return;
+                    }
                 }
                 else if (b == 0xE0)
                 {
@@ -56,27 +69,31 @@ namespace LaserOutReader
                     switch (b)
                     {
                         case 0x00:
-                            Next(5);
+                            Next();
                             break;
                         case 0x04:
                             // something related to line position
-                            Next(14);
+                            Console.Write("\n  ");
+                            Next(4);
+                            Console.WriteLine();
+                            ReadFloat("x");
+                            Console.WriteLine();
+                            ReadFloat("y");
                             break;
                         case 0x05:
                             Next(10);
                             break;
                         case 0x06:
-                            Next(5);
+                            ReadFloat();
                             break;
                         case 0x07:
-                            Next(5);
+                            ReadFloat("x");
                             break;
                         case 0x08:
-                            Next(5);
+                            ReadFloat();
                             break;
                         case 0x09:
-                            // something related to line position
-                            Next(5);
+                            ReadFloat("y");
                             break;
                         case 0x0A:
                             Next();
@@ -85,7 +102,7 @@ namespace LaserOutReader
                             Next(4);
                             break;
                         case 0x0C:
-                            Next(5);
+                            ReadFloat();
                             break;
                         case 0x0E:
                             Next();
@@ -110,13 +127,10 @@ namespace LaserOutReader
                             Next();
                             break;
                         case 0x02:
-                            Console.Write(" <- Cut speed:");
-                            float cutSpeed = ParseFloat(Next(5));
+                            ReadFloat("cut speed");
                             break;
-
                         case 0x04:
-                            Console.Write(" <- Free speed:");
-                            float freeSpeed = ParseFloat(Next(5));
+                            ReadFloat("free speed");
                             break;
                         default:
                             Console.Write("Unknown category {0:X2}", b);
@@ -152,28 +166,9 @@ namespace LaserOutReader
                         case 0x09:
                             Next(2);
                             var lb = Peek();
-                            while(lb == 0x80)
+                            while (lb != 0xE0)
                             {
-                                Console.WriteLine();
-                                Next();
-                                Console.WriteLine();
-                                Console.Write("x: ");
-                                Next(5);
-                                Console.WriteLine();
-                                Console.Write("y: ");
-                                Next(5);
-                                Console.WriteLine();
-                                Next();
-                                Console.WriteLine();
-                                Next(2);
-                                Console.WriteLine();
-                                Next();
-                                Console.WriteLine();
-                                Console.Write("x: ");
-                                Next(5);
-                                Console.WriteLine();
-                                Console.Write("y: ");
-                                Next(5);
+                                ReadPath();
                                 lb = Peek();
                             }
                             break;
@@ -190,11 +185,50 @@ namespace LaserOutReader
             }
         }
 
+        private void ReadPath()
+        {
+            Console.WriteLine();
+            switch (Next())
+            {
+                case 0x80:
+                    Console.WriteLine(" <- Move to");
+                    ReadFloat("x");
+                    Console.WriteLine();
+                    ReadFloat("y");
+                    break;
+                case 0x82:
+                    Console.WriteLine(" <- Start laser?");
+                    Console.Write("  ");
+                    Next(2);
+                    break;
+                case 0xA0:
+                    Console.WriteLine(" <- Line to");
+                    ReadFloat("x");
+                    Console.WriteLine();
+                    ReadFloat("y");
+                    break;
+            }
+        }
+
+        void ReadFloat(string name = "f")
+        {
+            Console.Write("  " + name + ": ");
+            float val = ParseFloat(Next(5));
+            Console.Write(" = " + val);
+        }
+
         private static float ParseFloat(byte[] cb)
         {
             var value = (cb[0] << 32) | (cb[1] << 24) | (cb[2] << 16) | (cb[3] << 8) | cb[4];
-            // this is wrong 
-            return (value / 20) / 1000;
+            // todo
+            if (value == 0x01) return 0.001f;
+            if (value == 0x0A) return 0.01f;
+            if (value == 0x64) return 0.1f;
+            if (value == 0x0768) return 1f;
+            if (value == 0x4E10) return 10f;
+            if (value == 0x060D20) return 100f;
+
+            return value / 1000;
         }
     }
 }
