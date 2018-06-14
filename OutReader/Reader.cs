@@ -97,11 +97,11 @@ namespace LaserOutReader
                     else
                     {
                         var a = Next();
-                        var b1 = Next();
+                        var b2 = Next();
                         var c = Next();
                         var d = Next();
                         //TODO combine numbers
-                        _outStream.Write(" Payloadsize: " + BitConverter.ToNumber(a, b1));
+                        _outStream.Write(" Payloadsize: " + BitConverter.ToNumber(a, b2));
                         var payloadSize = (int)BitConverter.ToNumber(c, d);
                         _outStream.Write(" + " + payloadSize);
                     }
@@ -243,25 +243,24 @@ namespace LaserOutReader
                             var a3 = Next();
                             var b3 = Next();
                             _outStream.Write("{0}", BitConverter.ToNumber(a3, b3));
-                            if (a3 == 0x00)
-                            {
-                                var lb = Peek();
-                                while (lb != 0xE0)
-                                {
-                                    _outStream.WriteLine();
-                                    _outStream.Write(_offset + ":\t");
-                                    ReadPath();
-                                    lb = Peek();
-                                }
-                            }
                             break;
                         case 0x10:
-                            Next(16);
+                            PrintFloat(" Point mode, delay");
+                            break;
+                        case 0x11:
+                            PrintFloat();
                             break;
                         default:
                             _outStream.Write("Unknown category {0:X2}", b);
                             return;
                     }
+                    break;
+                    
+                case 0xC1:
+                    Next(2);
+                    break;
+                case 0xC2:
+                    Next(2);
                     break;
                 case 0xCD:
 
@@ -278,17 +277,6 @@ namespace LaserOutReader
                     break;
                 case 0xD0:
                     break;
-                default:
-                    return;
-            }
-        }
-
-        private void ReadPath()
-        {
-            
-            byte b = Next();
-            switch (b)
-            {
                 case 0x80:
                     _outStream.Write(" Move to: ");
                     PrintFloat(" x");
