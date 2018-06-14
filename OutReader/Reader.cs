@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Text;
 
 namespace LaserOutReader
 {
@@ -8,25 +9,61 @@ namespace LaserOutReader
         private int _offset;
         private int _length;
         private byte[] _buffer;
+        private TextWriter _outStream;
 
-        void ReadFile()
+        void ProcessFiles()
         {
-            string fileName = "../../../Samples/Line-x0-y0-Line-x0-y10-w100mm-h0.tmp";
-            _buffer = File.ReadAllBytes(fileName);
-            Console.Write("Got {0} bytes\n", _length = _buffer.Length);
-            _offset = 0;
+            var path = "../../../Samples/";
+            var files = Directory.GetFiles(path, "*.out", SearchOption.TopDirectoryOnly);
+            foreach(var file in files)
+            {
+                var filename = path + Path.GetFileNameWithoutExtension(file) + ".txt";
+                using (_outStream = new StreamWriter(File.Create(filename))) { 
+                    ReadFile(file);
+                    _outStream.Flush();
+                    _outStream.Close();
+                }
+            }
         }
 
-        byte Peek()
+        void ReadFile(string fileName)
         {
-            return _buffer[_offset];
+            _buffer = File.ReadAllBytes(fileName);
+            _outStream.WriteLine("Got {0} bytes\n", _length = _buffer.Length);
+            _offset = 0;
+
+            for (; _offset < _buffer.Length;)
+            {
+                _outStream.Write(_offset + ":\t");
+                ReadChunk();
+                _outStream.WriteLine();
+            }
+        }
+
+        byte Peek(int offset = 0)
+        {
+            return (byte)(_buffer[_offset + offset] ^ 0x63);
+        }
+
+        byte Read()
+        {
+            return (byte)(_buffer[_offset++] ^ 0x63);
         }
 
         byte Next()
         {
-            byte b = _buffer[_offset++];
-            Console.Write("{0:X2}", b);
+            byte b = Read();
+            _outStream.Write("{0:X2} ", b);
             return b;
+        }
+
+        byte[] Read(int length)
+        {
+            var bytes = new byte[length];
+            for (var i = 0; i < length; i++)
+                bytes[i] = Read();
+
+            return bytes;
         }
 
         byte[] Next(int length)
@@ -40,69 +77,98 @@ namespace LaserOutReader
 
         public Reader()
         {
-            ReadFile();
+            ProcessFiles();
+            Console.WriteLine("Done");
+        }
 
-            for (byte b = 0; _offset < _buffer.Length;)
+        void ReadChunk()
+        {
+            byte b = Next();
+            switch (b)
             {
-                b = Next();
-                if (b == 0xE3)
-                {
+                case 0x00:
+                    Next(8);
+                    break;
+                case 0xE2:
+                    if (Next() == 0x01)
+                    {
+                        _outStream.Write(" File name (or a part of it): " + Encoding.UTF8.GetString(Next(9)));
+                    }
+                    else
+                    {
+                        var a = Next();
+                        var b1 = Next();
+                        var c = Next();
+                        var d = Next();
+                        //TODO combine numbers
+                        _outStream.Write(" Payloadsize: " + BitConverter.ToNumber(a, b1));
+                        var payloadSize = (int)BitConverter.ToNumber(c, d);
+                        _outStream.Write(" + " + payloadSize);
+                    }
+                    break;
+                case 0xE3:
                     b = Next();
                     switch (b)
                     {
+                        case 0x01:
+                            _outStream.Write(" ? ");
+                            Next();
+                            Next();
+                            PrintFloat("?");
+                            break;
                         case 0x02:
-                            Console.Write(" <- END ");
+                            _outStream.Write(" <- END ");
                             Next(2);
                             break;
                         case 0x03:
-                            Console.Write(" <- START ");
+                            _outStream.Write(" <- START ");
                             Next(2);
                             break;
                         default:
-                            Console.Write("Unknown category {0:X2}", b);
+                            _outStream.Write("Unknown category {0:X2}", b);
                             return;
                     }
-                }
-                else if (b == 0xE0)
-                {
+                    break;
+
+                case 0xE0:
+
                     b = Next();
                     switch (b)
                     {
                         case 0x00:
-                            Next();
+                            //Next();
                             break;
                         case 0x04:
                             // something related to line position
-                            Console.Write("\n  ");
+
                             Next(4);
-                            Console.WriteLine();
-                            ReadFloat("x");
-                            Console.WriteLine();
-                            ReadFloat("y");
+                            PrintFloat(" x");
+                            _outStream.Write(" ");
+                            PrintFloat(" y");
                             break;
                         case 0x05:
                             Next(10);
                             break;
                         case 0x06:
-                            ReadFloat();
+                            PrintFloat();
                             break;
                         case 0x07:
-                            ReadFloat("x");
+                            PrintFloat("x");
                             break;
                         case 0x08:
-                            ReadFloat();
+                            PrintFloat();
                             break;
                         case 0x09:
-                            ReadFloat("y");
+                            PrintFloat("y");
                             break;
                         case 0x0A:
                             Next();
                             break;
                         case 0x0B:
-                            Next(4);
+                            Next();
                             break;
                         case 0x0C:
-                            ReadFloat();
+                            PrintFloat();
                             break;
                         case 0x0E:
                             Next();
@@ -114,12 +180,12 @@ namespace LaserOutReader
                             Next(68);
                             break;
                         default:
-                            Console.Write("Unknown category {0:X2}", b);
+                            _outStream.Write("Unknown category {0:X2}", b);
                             return;
                     }
-                }
-                else if (b == 0xC5)
-                {
+                    break;
+                case 0xC5:
+
                     b = Next();
                     switch (b)
                     {
@@ -127,32 +193,38 @@ namespace LaserOutReader
                             Next();
                             break;
                         case 0x02:
-                            ReadFloat("cut speed");
+                            PrintFloat("cut speed");
                             break;
                         case 0x04:
-                            ReadFloat("free speed");
+                            PrintFloat("free speed");
                             break;
                         default:
-                            Console.Write("Unknown category {0:X2}", b);
+                            _outStream.Write("Unknown category {0:X2}", b);
                             return;
                     }
-                }
-                else if (b == 0xC0)
-                {
+                    break;
+                case 0xC0:
+
                     b = Next();
                     switch (b)
                     {
-                        case 0x01:
+                        case 0x00:
                             Next(2);
+                            break;
+                        case 0x01:
+                            _outStream.Write(" Corner power1: ");
+                            _outStream.Write(ReadPercentage().ToString("n2") + "%");
                             break;
                         case 0x02:
-                            Next(2);
+                            _outStream.Write(" Work power1: ");
+                            _outStream.Write(ReadPercentage().ToString("n2") + "%");
                             break;
                         case 0x03:
-                            Next(2);
+                            _outStream.Write(" Work power2: ");
+                            _outStream.Write(ReadPercentage().ToString("n2") + "%");
                             break;
                         case 0x04:
-                            Next(2);
+                            _outStream.Write("{0}", BitConverter.ToNumber(Next(), Next()));
                             break;
                         case 0x05:
                             Next(2);
@@ -160,75 +232,149 @@ namespace LaserOutReader
                         case 0x06:
                             Next(2);
                             break;
-                        case 0x08:
+                        case 0x07:
                             Next(2);
+                            break;
+                        case 0x08:
+                            _outStream.Write(" Corner power2: ");
+                            _outStream.Write(ReadPercentage().ToString("n2") + "%");
                             break;
                         case 0x09:
-                            Next(2);
-                            var lb = Peek();
-                            while (lb != 0xE0)
+                            var a3 = Next();
+                            var b3 = Next();
+                            _outStream.Write("{0}", BitConverter.ToNumber(a3, b3));
+                            if (a3 == 0x00)
                             {
-                                ReadPath();
-                                lb = Peek();
+                                var lb = Peek();
+                                while (lb != 0xE0)
+                                {
+                                    _outStream.WriteLine();
+                                    _outStream.Write(_offset + ":\t");
+                                    ReadPath();
+                                    lb = Peek();
+                                }
                             }
                             break;
+                        case 0x10:
+                            Next(16);
+                            break;
                         default:
-                            Console.Write("Unknown category {0:X2}", b);
+                            _outStream.Write("Unknown category {0:X2}", b);
                             return;
                     }
-                }
-                else
-                {
-                    continue;
-                }
-                Console.WriteLine();
+                    break;
+                case 0xCD:
+
+                    b = Next();
+                    switch (b)
+                    {
+                        case 0x00:
+                            Next(2);
+                            break;
+                        case 0x01:
+                            Next(1);
+                            break;
+                    }
+                    break;
+                case 0xD0:
+                    break;
+                default:
+                    return;
             }
         }
 
         private void ReadPath()
         {
-            Console.WriteLine();
-            switch (Next())
+            
+            byte b = Next();
+            switch (b)
             {
                 case 0x80:
-                    Console.WriteLine(" <- Move to");
-                    ReadFloat("x");
-                    Console.WriteLine();
-                    ReadFloat("y");
+                    _outStream.Write(" Move to: ");
+                    PrintFloat(" x");
+                    _outStream.Write(" ");
+                    PrintFloat(" y");
+                    break;
+                case 0x81:
+                    _outStream.Write(" Carve? ");
+                    Next(4);
                     break;
                 case 0x82:
-                    Console.WriteLine(" <- Start laser?");
-                    Console.Write("  ");
+                    _outStream.Write(" Start laser? ");
                     Next(2);
                     break;
                 case 0xA0:
-                    Console.WriteLine(" <- Line to");
-                    ReadFloat("x");
-                    Console.WriteLine();
-                    ReadFloat("y");
+                    _outStream.Write(" Line to: ");
+                    PrintFloat(" x");
+                    _outStream.Write(" ");
+                    PrintFloat(" y");
                     break;
+                case 0xA1:
+                    _outStream.Write(" Short line to: ");
+                    var a1 = Next();
+                    var b1 = Next();
+                    var c1 = Next();
+                    var d1 = Next();
+                    _outStream.Write("[{0},{1}],", BitConverter.ToNumber(a1, b1), BitConverter.ToNumber(c1, d1));
+                    break;
+                case 0xA2:
+                    // Used when drawing square. Probably have some sort of direction. TODO rotate the sqare and see what happens 
+                    _outStream.Write(" Horizontal line? {0}", BitConverter.ToNumber(Next(), Next()));
+                    break;
+                case 0xA3:
+                    // Used when drawing square. Probably have some sort of direction. TODO rotate the sqare and see what happens 
+                    _outStream.Write(" Vertical line? {0}", BitConverter.ToNumber(Next(), Next()));
+                    break;
+                default:
+                    _outStream.Write("Unknown category {0:X2}", b);
+                    return; 
             }
         }
 
-        void ReadFloat(string name = "f")
+
+        private float ReadPercentage() { return BitConverter.ToPercentage(Next(), Next()); }
+
+
+        void PrintFloat(string name = "f")
         {
-            Console.Write("  " + name + ": ");
-            float val = ParseFloat(Next(5));
-            Console.Write(" = " + val);
+            _outStream.Write("{0}:{1:n2}", name, BitConverter.ToFloat(Next(5)));
+        }
+    }
+
+    public static class BitConverter
+    {
+        public static float ToNumber(byte a, byte b)
+        {
+            if (a == 0)
+                return b;
+
+            int v = (b - a);
+            if (a > 64) return v - (0x7F * (0x7F - a));
+            if (a >= 1) return a * 0x7F + v;
+
+            return v;
         }
 
-        private static float ParseFloat(byte[] cb)
+        public static float ToFloat(byte[] cb)
         {
-            var value = (cb[0] << 32) | (cb[1] << 24) | (cb[2] << 16) | (cb[3] << 8) | cb[4];
-            // todo
-            if (value == 0x01) return 0.001f;
-            if (value == 0x0A) return 0.01f;
-            if (value == 0x64) return 0.1f;
-            if (value == 0x0768) return 1f;
-            if (value == 0x4E10) return 10f;
-            if (value == 0x060D20) return 100f;
+            int value =
+                  (cb[0] << 7 * 4)
+                + (cb[1] << 7 * 3)
+                + (cb[2] << 7 * 2)
+                + (cb[3] << 7)
+                + cb[4];
 
-            return value / 1000;
+            return value / 1000f;
+        }
+
+        public static float ToPercentage(byte a, byte b)
+        {
+            int l = (a * 0x7f) + b;
+            int f = 0x7f << 7;
+            float v = (l * 10000f) / f;
+            var g = v + 0.5f;
+            return ((int)g) / 100f;
         }
     }
 }
+ 
